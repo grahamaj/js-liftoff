@@ -10,9 +10,8 @@ const rechoir = require('rechoir');
 
 const findCwd = require('./lib/find_cwd');
 const findConfig = require('./lib/find_config');
-const fileSearch = require('./lib/file_search');
+const moduleSearch = require('./lib/module_search');
 const parseOptions = require('./lib/parse_options');
-const silentRequire = require('./lib/silent_require');
 const buildConfigName = require('./lib/build_config_name');
 
 
@@ -84,32 +83,11 @@ Liftoff.prototype.buildEnvironment = function (opts) {
     }
   }
 
-  // TODO: break this out into lib/
-  // locate local module and package next to config or explicitly provided cwd
-  var modulePath, modulePackage;
-  try {
-    var delim = (process.platform === 'win32' ? ';' : ':'),
-        paths = (process.env.NODE_PATH ? process.env.NODE_PATH.split(delim) : []);
-    modulePath = resolve.sync(this.moduleName, {basedir: configBase || cwd, paths: paths});
-    modulePackage = silentRequire(fileSearch('package.json', [modulePath]));
-  } catch (e) {}
-
-  // if we have a configuration but we failed to find a local module, maybe
-  // we are developing against ourselves?
-  if (!modulePath && configPath) {
-    // check the package.json sibling to our config to see if its `name`
-    // matches the module we're looking for
-    var modulePackagePath = fileSearch('package.json', [configBase]);
-    modulePackage = silentRequire(modulePackagePath);
-    if (modulePackage && modulePackage.name === this.moduleName) {
-      // if it does, our module path is `main` inside package.json
-      modulePath = path.join(path.dirname(modulePackagePath), modulePackage.main || 'index.js');
-      cwd = configBase;
-    } else {
-      // clear if we just required a package for some other project
-      modulePackage = {};
-    }
-  }
+  var mod = moduleSearch.nodeModule(this.moduleName, configBase || cwd); //1. check configBase for installed node module
+  if (!mod) { mod = moduleSearch.package(this.moduleName, configBase); } //2. check configBase for package
+  if (!mod) { mod = moduleSearch.nodeModule(this.moduleName, cwd); }     //3. check cwd for installed node module
+  if (!mod) { mod = moduleSearch.package(this.moduleName, cwd); }        //4. check cwd for package
+  if (!mod) { mod = {}; }                                                //5. give-up
 
   // load any modules which were requested to be required
   if (preload.length) {
@@ -145,8 +123,8 @@ Liftoff.prototype.buildEnvironment = function (opts) {
     configNameSearch: configNameSearch,
     configPath: configPath,
     configBase: configBase,
-    modulePath: modulePath,
-    modulePackage: modulePackage || {}
+    modulePath: mod.path,
+    modulePackage: mod.package || {}
   };
 };
 
